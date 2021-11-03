@@ -1,0 +1,205 @@
+---
+title: "QNC Data Visualization Presentation"
+output: html_notebook
+---
+
+
+Loading packages
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tibble)
+library(tidyr)
+library(wesanderson) 
+```
+
+
+
+```{r}
+#generating behavior data 
+set.seed(77) #seed is 7
+cohort_size <- 20
+
+mouse_data <- tibble(
+  "mouse_ID" = seq(1, cohort_size, 1),
+  "Weight" = rnorm(cohort_size, 28, 4),
+  "age_in_months" =  abs(rnorm(cohort_size, 4, 2)),
+  "Freezing" = rnorm(cohort_size, .4, .1),
+  "num_TD_Tom_pos_per_slice_ctx" = rnorm(cohort_size, 200, 30),
+  "num_488_pos_per_slice_ctx" = rnorm(cohort_size, 200, 30),
+  "percent_coloc_ctx" = 0,
+  "num_coloc_ctx" = 0,
+  "num_TD_Tom_pos_per_slice_hip" = rnorm(cohort_size, 200, 30),
+  "num_488_pos_per_slice_hip" = rnorm(cohort_size, 200, 30),
+  "percent_coloc_hip" = rnorm(cohort_size, 20, 5),
+  "num_coloc_hip" = percent_coloc_hip * 100
+  
+)
+
+   for(i in 1:nrow(mouse_data)) {
+    mouse_data$percent_coloc_ctx[i] <- abs(rnorm(1, (mouse_data$Freezing[i] / 2 *100), 10))
+    mouse_data$num_coloc_ctx[i] <- (mouse_data$percent_coloc_ctx[i] * mouse_data$num_488_pos_per_slice_ctx[i])/100
+ }
+
+mouse_data <- mouse_data %>%  
+  arrange(desc(Freezing))  %>%  
+  add_column(Distrobution = c(rep("Top 25 Percent",cohort_size * .25), rep("Middle 50 Percent",cohort_size * .5), rep("Bottom 25 Percent",cohort_size * .25))) 
+```
+
+
+Plotting the freezing distrobution
+```{r}
+
+ggplot(mouse_data, aes(Freezing))  + geom_histogram(binwidth =  .04, fill="transparent", color = "black", aes(color = Distrobution)) +  geom_dotplot(aes(fill = Distrobution),method="histodot", binwidth = .04, dotsize = .7, stackratio = 2 ) + xlab("Percent freezing time") + ylab("Count") +
+  scale_fill_manual(values=wes_palette(n=3, name="GrandBudapest2"))
+
+
+
+ggplot(mouse_data, aes(Freezing)) + geom_density(fill = "grey") + geom_dotplot(aes(fill = Distrobution),method="histodot", binwidth = .04 ) + xlab("Percent freezing time") + ylab("Count") + scale_fill_manual(values=wes_palette(n=3, name="GrandBudapest2")) 
+
+ggplot(mouse_data, aes(Freezing)) + geom_density()
+
+
+```
+
+
+Varying distrobutions between corex and hippocampal engrams 
+
+```{r}
+
+
+#Properly Organizing data
+coloc_by_region <- tibble(
+ Mouse_ID = c(mouse_data$mouse_ID, mouse_data$mouse_ID),
+ Brain_region = c(rep("Cortex",cohort_size),  rep("Hippocampus",cohort_size)),
+ Engram_coloc_counts = c(mouse_data$num_coloc_ctx, mouse_data$num_coloc_hip),
+ Engram_coloc_percent = c(mouse_data$percent_coloc_ctx, mouse_data$percent_coloc_hip),
+ Percent_freezing = c(mouse_data$Freezing, mouse_data$Freezing),
+ Distrobution = c(mouse_data$Distrobution, mouse_data$Distrobution)
+)  
+
+ggplot(coloc_by_region, aes(Percent_freezing, Engram_coloc_percent, fill = Brain_region))  + geom_bar(stat = "identity", position = "dodge")
+
+ggplot(coloc_by_region, aes(Percent_freezing, Engram_coloc_percent, fill = Brain_region))  + geom_smooth(method = "gam", formula = y ~ s(x), colour = "lightsteelblue3") +
+scale_fill_manual(values=wes_palette(n=2, name="GrandBudapest2")) + xlab("Percent freezing time") + ylab("Perent colocalized cells")
+
+
+
+```
+
+
+Colocalized cells data cleaning and graphing 
+```{r}
+#Properly Organizing data
+engram_counts <- tibble(
+ Mouse_ID = c(mouse_data$mouse_ID, mouse_data$mouse_ID, mouse_data$mouse_ID, mouse_data$mouse_ID, mouse_data$mouse_ID, mouse_data$mouse_ID ),
+ Engram_labels = c(rep("Early Engram Cells",cohort_size),  rep("Late Engram Cells",cohort_size), rep("Colocalized Engram Cells",cohort_size), rep("Early Engram Cells",cohort_size),  rep("Late Engram Cells",cohort_size), rep("Colocalized Engram Cells",cohort_size)),
+ Engram_cell_counts = c(mouse_data$num_TD_Tom_pos_per_slice_ctx, mouse_data$num_488_pos_per_slice_ctx, mouse_data$num_coloc_ctx, mouse_data$num_TD_Tom_pos_per_slice_ctx, mouse_data$num_488_pos_per_slice_ctx, mouse_data$num_coloc_ctx),
+ Distrobution = c(mouse_data$Distrobution, mouse_data$Distrobution, mouse_data$Distrobution, rep("All Cells", 3*cohort_size))
+)  
+
+#Bar Plot 
+engram_counts %>% 
+  filter(Distrobution != "Middle 50 Percent") %>%
+  mutate(Distrobution = factor(Distrobution, levels=c("Bottom 25 Percent", "Top 25 Percent", "All Cells"))) %>%
+  ggplot( aes(Engram_cell_counts, Engram_labels, fill = Distrobution)) + 
+         geom_bar(stat="summary", fun= mean, position = "dodge") + coord_flip() + scale_fill_manual(values=wes_palette(n=4, name="GrandBudapest2")) 
+
+#Box and Wisker on early and late engram 
+engram_counts %>% 
+  filter(Distrobution != "Middle 50 Percent") %>%
+  filter(Engram_labels != "Colocalized Engram Cells") %>%
+  mutate(Distrobution = factor(Distrobution, levels=c("Bottom 25 Percent", "Top 25 Percent", "All Cells"))) %>%
+  ggplot( aes(Engram_cell_counts, Engram_labels, fill = Distrobution)) + 
+         geom_boxplot(position = "dodge") + coord_flip() + scale_fill_manual(values=wes_palette(n=4, name="GrandBudapest2")) 
+
+#boxplot on colocalized cells
+engram_counts %>% 
+  filter(Distrobution != "Middle 50 Percent") %>%
+  filter(Engram_labels == "Colocalized Engram Cells") %>%
+  mutate(Distrobution = factor(Distrobution, levels=c("Bottom 25 Percent", "Top 25 Percent", "All Cells"))) %>%
+  ggplot( aes(Engram_cell_counts, Engram_labels, fill = Distrobution)) + 
+         geom_boxplot(position = "dodge") + coord_flip() + scale_fill_manual(values=wes_palette(n=4, name="GrandBudapest2")) 
+
+#Facet Wrapped box and wiskers 
+engram_counts %>% 
+  filter(Distrobution != "Middle 50 Percent") %>%
+  mutate(Distrobution = factor(Distrobution, levels=c("Bottom 25 Percent", "Top 25 Percent", "All Cells"))) %>%
+  mutate(Engram_labels = factor(Engram_labels, levels=c("Early Engram Cells", "Late Engram Cells", "Colocalized Engram Cells"))) %>%
+  ggplot( aes(Engram_cell_counts, fill = Distrobution)) + 
+         geom_boxplot(position = "dodge") + coord_flip() + scale_fill_manual(values=wes_palette(n=4, name="GrandBudapest2")) + facet_wrap(vars(Engram_labels)) + scale_y_continuous(breaks = NULL) + xlab("Engram Cell Count (per slice)")
+  
+
+
+
+```
+
+```{r}
+
+ggplot(mouse_data, aes(Freezing, percent_coloc_ctx)) + 
+  geom_point() + 
+  geom_smooth(method = "gam", formula = y ~ s(x), colour = "plum4") + xlab("Freezing (percent time)") + ylab("Percent of cells colocalized")
+
+ggplot(mouse_data, aes(Freezing, Weight)) + 
+  geom_point() + 
+  geom_smooth(method = "gam", formula = y ~ s(x), colour = "plum4") + xlab("Freezing (percent time)") + ylab("Mouse body weight")
+
+ggplot(mouse_data, aes(Freezing, age_in_months)) + 
+  geom_point() + 
+  geom_smooth(method = "gam", formula = y ~ s(x), colour = "plum4") + xlab("Freezing (percent time)") + ylab("Mouse age (in months)")
+
+
+```
+
+
+code for generating forest plots from another project 
+
+```{r}
+
+# #generating the forest plots
+# #Forrest plot by engram stage
+# 
+# #Initiating variables 
+# engram_means = 0
+# engram_Lower_CI = 0
+# engram_Upper_CI = 0
+# 
+# cell_type <- c(c("Astrocytes", "Endothelial", "Microglia", "Neurons", "Oligodendrocytes"))
+# AD_status <- c("control", "AD")
+# 
+# #Finding means and upper and lower CIs for each cell type - Controls vs AD (might be a better way to do this)
+# for (i in 1:5){
+#   temp <- filter(error_comparisons, Cell_type == cell_type[i] & AD_status == "Control")
+#   cell_type_means[i] <- mean(temp$error)
+#   cell_typeLower_CI[i] = mean(temp$error) - (1.96 * sd(temp$error))
+#   cell_typeUpper_CI[i] = mean(temp$error) + (1.96 * sd(temp$error))
+#   
+# }
+# for (i in 1:5){
+#   temp <- filter(error_comparisons, Cell_type == cell_type[i] & AD_status == "AD")
+#   cell_type_means[5 +i] <- mean(temp$error)
+#   cell_typeLower_CI[5 +i] = mean(temp$error) - (1.96 * sd(temp$error))
+#   cell_typeUpper_CI[5 +i] = mean(temp$error) + (1.96 * sd(temp$error))
+# }
+# 
+# #generating the forrest plot for error between IHC and SCADEN
+# Parameter  = c("Astrocytes", "Endothelial", "Microglia", "Neurons", "Oligos", "Astrocytes", "Endothelial", "Microglia", "Neurons", "Oligos" )
+# AD_status = c(rep("Control", 5), rep("AD", 5))  
+# cell_type_forrest = data.frame(Parameter, cell_type_means, cell_typeLower_CI, cell_typeUpper_CI)
+# cell_type_forrest$Parameter = factor(cell_type_forrest$Parameter, levels=c("Astrocytes", "Endothelial", "Microglia", "Neurons", "Oligos")) 
+# 
+# g1 = ggplot(data=cell_type_forrest, aes(x=AD_status, y=cell_type_means, ymin=cell_typeLower_CI, ymax=cell_typeUpper_CI, color=Parameter))
+# g1 = g1 + geom_pointrange(aes(col=AD_status), lwd=1)
+# g1 = g1 + geom_hline(aes(fill=AD_status), yintercept =0, linetype=2)
+# g1 = g1 + xlab("") + ylab("Difference in IHC predictions and Scaden Predictions")
+# g1 = g1 + geom_errorbar(aes(ymin=cell_typeLower_CI, ymax=cell_typeUpper_CI, col=AD_status), width=0.5, cex=1)
+# g1 = g1 + facet_wrap(~Parameter, strip.position="left", nrow=9, scales = "free_y")
+# g1 = g1 + theme(plot.title=element_text(size=16,face="bold"),
+#         axis.text.y=element_blank(),
+#         axis.ticks.y=element_blank(),
+#         axis.text.x=element_text(face="bold"),
+#         axis.title=element_text(size=12,face="bold"),
+#         strip.text.y = element_text(hjust=0,vjust = 1,angle=180,face="bold"))
+# g1 + coord_flip() + theme_bw() + theme(legend.position="none")
+```
+
